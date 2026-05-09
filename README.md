@@ -2,6 +2,8 @@
 
 This tool lengthens the duration of subtitle blocks in an SRT file so that each subtitle stays on screen until shortly before the next one starts. This is particularly useful for dual-language videos where you want the text to remain visible for easier reading.
 
+You can use it now: [https://warrenkc.github.io/LengthenSubtitles/] (https://warrenkc.github.io/LengthenSubtitles/)
+
 ## Features
 - Lengthens subtitle duration to end **0.2 seconds** before the next subtitle begins.
 - Preserves original start times.
