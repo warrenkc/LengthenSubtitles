@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRT Subtitle Lengthener</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        .container {
+            border: 1px solid #ddd;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 { margin-top: 0; }
+        .input-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input[type="file"] { display: block; width: 100%; padding: 10px; border: 1px dashed #ccc; cursor: pointer; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        #status { margin-top: 20px; padding: 15px; border-radius: 4px; display: none; }
+        .success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SRT Subtitle Lengthener</h1>
+        <p>Lengthen subtitles until the next one starts, leaving a 0.2s gap.</p>
+        
+        <div class="input-group">
+            <label for="srtFile">Select SRT File:</label>
+            <input type="file" id="srtFile" accept=".srt">
+        </div>
+
+        <button id="processBtn">Process and Download</button>
+
+        <div id="status"></div>
+    </div>
+
+    <script>
+        document.getElementById('processBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('srtFile');
+            const statusDiv = document.getElementById('status');
+            
+            if (!fileInput.files.length) {
+                showStatus('Please select a file first.', 'error');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const text = await file.text();
+            
+            try {
+                const processedSrt = processSrt(text);
+                const blob = new Blob([processedSrt], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.name.replace('.srt', '-lengthened.srt');
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                showStatus('File processed and download started!', 'success');
+            } catch (err) {
+                console.error(err);
+                showStatus('Error processing file. Make sure it is a valid SRT.', 'error');
+            }
+        });
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = type;
+            statusDiv.style.display = 'block';
+        }
+
+        function timeToMS(timeStr) {
+            const [hms, ms] = timeStr.trim().split(',');
+            const [h, m, s] = hms.split(':').map(Number);
+            return (h * 3600000) + (m * 60000) + (s * 1000) + Number(ms);
+        }
+
+        function msToTime(duration) {
+            const milliseconds = parseInt((duration % 1000));
+            const seconds = Math.floor((duration / 1000) % 60);
+            const minutes = Math.floor((duration / (1000 * 60)) % 60);
+            const hours = Math.floor((duration / (1000 * 60 * 60)) % 24);
+
+            const h = hours.toString().padStart(2, '0');
+            const m = minutes.toString().padStart(2, '0');
+            const s = seconds.toString().padStart(2, '0');
+            const ms = milliseconds.toString().padStart(3, '0');
+
+            return `${h}:${m}:${s},${ms}`;
+        }
+
+        function processSrt(content) {
+            // Normalize line endings
+            content = content.replace(/\r\n/g, '\n');
+            
+            // Patterns for SRT blocks
+            // Using a simple split then parse approach for robustness
+            const blocks = content.trim().split(/\n\n+/);
+            const processedLines = [];
+
+            const parsedBlocks = blocks.map(block => {
+                const lines = block.split('\n');
+                if (lines.length < 3) return null;
+                
+                const index = lines[0];
+                const timeMatch = lines[1].match(/(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})/);
+                if (!timeMatch) return null;
+                
+                const start = timeMatch[1];
+                const end = timeMatch[2];
+                const text = lines.slice(2).join('\n');
+                
+                return { index, start, end, text, startMs: timeToMS(start) };
+            }).filter(b => b !== null);
+
+            for (let i = 0; i < parsedBlocks.length; i++) {
+                const current = parsedBlocks[i];
+                let newEnd = current.end;
+
+                if (i < parsedBlocks.length - 1) {
+                    const nextStartMs = parsedBlocks[i + 1].startMs;
+                    const calculatedEndMs = nextStartMs - 200; // 0.2 seconds gap
+                    
+                    if (calculatedEndMs > current.startMs) {
+                        newEnd = msToTime(calculatedEndMs);
+                    }
+                }
+
+                processedLines.push(`${current.index}\n${current.start} --> ${newEnd}\n${current.text}`);
+            }
+
+            return processedLines.join('\n\n') + '\n';
+        }
+    </script>
+</body>
+</html>
