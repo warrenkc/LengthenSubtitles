@@ -21,7 +21,11 @@ def format_time(dt):
     s = dt.strftime("%H:%M:%S,%f")
     return s[:-3].replace(".", ",")
 
-def process_srt(input_file, output_file):
+def has_chinese(text):
+    """Checks if the text contains any Chinese characters."""
+    return any('\u4e00' <= char <= '\u9fff' for char in text)
+
+def process_srt(input_file, output_file, remove_chinese):
     if not os.path.exists(input_file):
         print(f"Error: {input_file} not found.")
         return
@@ -33,30 +37,42 @@ def process_srt(input_file, output_file):
     pattern = re.compile(r'(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n(.*?)(?=\n\n\d+|\n*$)', re.DOTALL)
     matches = list(pattern.finditer(content))
 
+    raw_data = []
+    for match in matches:
+        text = match.group(4)
+        if remove_chinese and has_chinese(text):
+            continue
+        raw_data.append({
+            'start_time': parse_time(match.group(2)),
+            'end_time': parse_time(match.group(3)),
+            'text': text,
+            'start_str': match.group(2)
+        })
+
     processed_blocks = []
     
-    for i in range(len(matches)):
-        index = matches[i].group(1)
-        start_time_str = matches[i].group(2)
-        end_time_str = matches[i].group(3)
-        text = matches[i].group(4)
-
-        start_time = parse_time(start_time_str)
+    for i in range(len(raw_data)):
+        index = i + 1
+        start_time = raw_data[i]['start_time']
+        start_str = raw_data[i]['start_str']
+        text = raw_data[i]['text']
         # By default, keep original end time for the last one
-        new_end_time = parse_time(end_time_str)
+        new_end_time = raw_data[i]['end_time']
 
-        if i < len(matches) - 1:
+        if i < len(raw_data) - 1:
             # Get start time of the next subtitle
-            next_start_time = parse_time(matches[i+1].group(2))
+            next_start_time = raw_data[i+1]['start_time']
             # Subtract 0.2 seconds
             calculated_end = next_start_time - timedelta(seconds=0.2)
             
             # Ensure we don't accidentally shorten it if the gap was already smaller than 0.2
-            # or if the original end time was actually later (unlikely in valid SRT but safe)
             if calculated_end > start_time:
                 new_end_time = calculated_end
 
-        processed_blocks.append(f"{index}\n{start_time_str} --> {format_time(new_end_time)}\n{text}")
+        processed_blocks.append(f"{index}\n{start_str} --> {format_time(new_end_time)}\n{text}")
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write("\n\n".join(processed_blocks) + "\n")
 
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write("\n\n".join(processed_blocks) + "\n")
@@ -83,13 +99,14 @@ def select_output_file():
 def run_processing():
     input_file = input_entry.get()
     output_file = output_entry.get()
+    remove_chinese = remove_chinese_var.get()
 
     if not input_file or not output_file:
         messagebox.showwarning("Warning", "Please select both input and output files.")
         return
 
     try:
-        process_srt(input_file, output_file)
+        process_srt(input_file, output_file, remove_chinese)
         messagebox.showinfo("Success", f"Processed subtitles saved to:\n{output_file}")
     except Exception as e:
         messagebox.showerror("Error", f"An error occurred: {str(e)}")
@@ -97,7 +114,7 @@ def run_processing():
 if __name__ == "__main__":
     root = tk.Tk()
     root.title("SRT Subtitle Lengthener")
-    root.geometry("500x250")
+    root.geometry("500x300")
 
     # Input File UI
     tk.Label(root, text="Input SRT File:").pack(pady=(20, 0))
@@ -115,8 +132,12 @@ if __name__ == "__main__":
     output_entry.pack(side="left", fill="x", expand=True)
     tk.Button(output_frame, text="Browse...", command=select_output_file).pack(side="right")
 
+    # Filter Options
+    remove_chinese_var = tk.BooleanVar()
+    tk.Checkbutton(root, text="Remove subtitles with Chinese characters", variable=remove_chinese_var).pack(pady=(10, 0))
+
     # Run Button
-    tk.Button(root, text="Process SRT", command=run_processing, bg="green", fg="white", font=("Arial", 10, "bold")).pack(pady=30)
+    tk.Button(root, text="Process SRT", command=run_processing, bg="green", fg="white", font=("Arial", 10, "bold")).pack(pady=20)
 
     root.mainloop()
 

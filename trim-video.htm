@@ -58,6 +58,11 @@
             <input type="file" id="srtFile" accept=".srt">
         </div>
 
+        <div class="input-group">
+            <input type="checkbox" id="removeChinese">
+            <label style="display:inline;" for="removeChinese">Remove subtitles with Chinese characters before trimming</label>
+        </div>
+
         <button id="processBtn">Process Video</button>
 
         <div id="progressContainer" style="display:none; margin-top: 20px;">
@@ -96,16 +101,41 @@
             progressText.textContent = `${percentage}%`;
         }
 
-        function parseSRT(data) {
+        function hasChinese(text) {
+            return /[\u4e00-\u9fff]/.test(text);
+        }
+
+        function parseSRT(data, removeChinese) {
+            const blocks = data.split(/\n\s*\n/);
             const segments = [];
-            const regex = /(\d+)\s+(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})/g;
-            let match;
-            while ((match = regex.exec(data)) !== null) {
+            const timeRegex = /(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})/;
+
+            for (const block of blocks) {
+                const lines = block.trim().split('\n');
+                if (lines.length < 3) continue;
+
+                const timeMatch = lines[1].match(timeRegex);
+                if (!timeMatch) continue;
+
+                const text = lines.slice(2).join('\n');
+                if (removeChinese && hasChinese(text)) continue;
+
                 segments.push({
-                    start: srtTimeToSeconds(match[2]),
-                    end: srtTimeToSeconds(match[3])
+                    start: srtTimeToSeconds(timeMatch[1]),
+                    end: srtTimeToSeconds(timeMatch[2]),
+                    text: text
                 });
             }
+
+            // Lengthen subtitles: gap of 0.2s
+            for (let i = 0; i < segments.length - 1; i++) {
+                const nextStart = segments[i + 1].start;
+                const newEnd = nextStart - 0.2;
+                if (newEnd > segments[i].start) {
+                    segments[i].end = newEnd;
+                }
+            }
+
             return segments;
         }
 
@@ -158,11 +188,12 @@
 
                 const videoFile = videoInput.files[0];
                 const srtFile = srtInput.files[0];
+                const removeChinese = document.getElementById('removeChinese').checked;
                 const videoName = 'input_video' + videoFile.name.substring(videoFile.name.lastIndexOf('.'));
                 
                 showStatus('Reading files...', 'info');
                 const srtText = await srtFile.text();
-                const segments = mergeSegments(parseSRT(srtText));
+                const segments = mergeSegments(parseSRT(srtText, removeChinese));
 
                 if (segments.length === 0) {
                     throw new Error('No subtitle segments found in SRT file.');
